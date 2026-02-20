@@ -143,7 +143,8 @@ void testProcessCSV(void)
             case 3:
                 puts("File reading error");
                 break;
-            default: break;
+            default:
+                break;
             }
             puts("Test skipped!\n");
             ++skipped;
