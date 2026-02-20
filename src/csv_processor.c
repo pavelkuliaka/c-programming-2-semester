@@ -57,7 +57,7 @@ int processCSV(const char* pathToCSV, const char* pathToTextFile)
     // Читаем файл целиком
     fseek(csvFile, 0, SEEK_END);
     long fileSize = ftell(csvFile);
-    if (fileSize < 0 || fileSize > 100*1024*1024) {
+    if (fileSize < 0 || fileSize > 100 * 1024 * 1024) {
         fclose(csvFile);
         return 3;
     }
