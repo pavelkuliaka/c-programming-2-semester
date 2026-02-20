@@ -1,0 +1,6 @@
+ID,Name,Value,Comment
+1,John,100,OK
+2,,200,Missing name
+,Anna,300,Missing ID
+3,Peter,,Missing value
+4,,,
