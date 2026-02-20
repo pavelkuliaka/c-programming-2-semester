@@ -3,7 +3,7 @@
 
 int main(void)
 {
-    int exitCode = processCSV("inputs.csv", "output.txt");
+    int exitCode = processCSV("input.csv", "output.txt");
     switch (exitCode) {
     case 1:
         puts("File opening error");
