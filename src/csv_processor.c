@@ -30,6 +30,10 @@ int isNumber(const char* string)
 // Функция для подсчета количества запятых в строке
 int countCommas(const char* string)
 {
+    if (string == NULL || *string == '\0') {
+        return 0;
+    }
+
     int count = 0;
     for (const char* pointer = string; *pointer; ++pointer) {
         if (*pointer == ',') {
@@ -37,6 +41,279 @@ int countCommas(const char* string)
         }
     }
     return count;
+}
+
+// Функция для чтения файла в буффер
+static char* readFileContents(const char* path, size_t* outSize)
+{
+    FILE* file = fopen(path, "r");
+    if (file == NULL) {
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    if (fileSize < 0) {
+        fclose(file);
+        return NULL;
+    }
+    fseek(file, 0, SEEK_SET);
+
+    char* buffer = malloc(fileSize + 1);
+    if (buffer == NULL) {
+        fclose(file);
+        return NULL;
+    }
+
+    size_t bytesRead = fread(buffer, 1, fileSize, file);
+    if (bytesRead != fileSize) {
+        free(buffer);
+        fclose(file);
+        return NULL;
+    }
+    buffer[fileSize] = '\0';
+    fclose(file);
+
+    *outSize = (size_t)fileSize;
+    return buffer;
+}
+
+// Функция для подсчета размера таблицы
+static void countDimensions(const char* buffer, unsigned int* rows, unsigned int* maxColumns)
+{
+    *rows = 0;
+    *maxColumns = 0;
+
+    char* bufferCopy = malloc(strlen(buffer) + 1);
+    if (bufferCopy == NULL) {
+        return;
+    }
+    strcpy(bufferCopy, buffer);
+
+    char* context = NULL;
+    char* line = strtok_r(bufferCopy, "\n", &context);
+
+    while (line != NULL) {
+        ++(*rows);
+        int commas = countCommas(line);
+        int columnsInLine = commas + 1;
+        if (columnsInLine > *maxColumns) {
+            *maxColumns = columnsInLine;
+        }
+        line = strtok_r(NULL, "\n", &context);
+    }
+
+    free(bufferCopy);
+}
+
+// Функция для создания таблицы
+static char*** allocateTable(unsigned int rows, unsigned int columns)
+{
+    char*** table = malloc(sizeof(char**) * rows);
+    if (table == NULL) {
+        return NULL;
+    }
+
+    for (unsigned int rowIndex = 0; rowIndex < rows; ++rowIndex) {
+        table[rowIndex] = calloc(columns, sizeof(char*));
+        if (table[rowIndex] == NULL) {
+            for (unsigned int index = 0; index < rowIndex; ++index) {
+                free(table[index]);
+            }
+            free(table);
+            return NULL;
+        }
+    }
+
+    return table;
+}
+
+// Функция для освобождения таблицы
+static void freeTable(char*** table, unsigned int rows, unsigned int columns)
+{
+    if (table == NULL) {
+        return;
+    }
+
+    for (unsigned int rowIndex = 0; rowIndex < rows; ++rowIndex) {
+        if (table[rowIndex] != NULL) {
+            for (unsigned int columnIndex = 0; columnIndex < columns; ++columnIndex) {
+                free(table[rowIndex][columnIndex]);
+            }
+            free(table[rowIndex]);
+        }
+    }
+    free(table);
+}
+
+// Функция для очистки памяти
+static void cleanup(char* buffer, char*** table, unsigned int* columnSizes,
+    unsigned int rows, unsigned int columns)
+{
+    free(buffer);
+    free(columnSizes);
+    if (table)
+        freeTable(table, rows, columns);
+}
+
+// Функция для разбиения строки по столбцам
+static unsigned int parseCSVLine(const char* line, char** outValues,
+    unsigned int maxColumns, unsigned int* columnSizes)
+{
+    unsigned int columnIndex = 0;
+    size_t lineLength = strlen(line);
+
+    char* lineCopy = malloc(lineLength + 1);
+    if (lineCopy == NULL) {
+        return 0;
+    }
+    strcpy(lineCopy, line);
+
+    char* start = lineCopy;
+    char* current = lineCopy;
+
+    for (; *current != '\0'; ++current) {
+        if (*current == ',') {
+            *current = '\0';
+
+            char* value = start;
+            while (isspace(*value)) {
+                ++value;
+            }
+
+            char* end = value + strlen(value) - 1;
+            while (end > value && isspace(*end)) {
+                --end;
+            }
+            *(end + 1) = '\0';
+
+            if (columnIndex < maxColumns) {
+                outValues[columnIndex] = strdup(value);
+                size_t length = strlen(value);
+                if (length > columnSizes[columnIndex]) {
+                    columnSizes[columnIndex] = length;
+                }
+                ++columnIndex;
+            }
+
+            start = current + 1;
+        }
+    }
+
+    if (columnIndex < maxColumns) {
+        char* value = start;
+        while (isspace(*value)) {
+            ++value;
+        }
+
+        char* end = value + strlen(value) - 1;
+        while (end > value && isspace(*end)) {
+            --end;
+        }
+        *(end + 1) = '\0';
+
+        outValues[columnIndex] = strdup(value);
+        size_t length = strlen(value);
+        if (length > columnSizes[columnIndex]) {
+            columnSizes[columnIndex] = length;
+        }
+        ++columnIndex;
+    }
+
+    while (columnIndex < maxColumns) {
+        outValues[columnIndex] = strdup("");
+        ++columnIndex;
+    }
+
+    free(lineCopy);
+    return columnIndex;
+}
+
+// Функция для отрисовки таблицы
+static void drawTable(FILE* file, char*** table, unsigned int rows,
+    unsigned int columns, unsigned int* columnSizes)
+{
+    fputs("+", file);
+    for (unsigned int columnIndex = 0; columnIndex < columns; ++columnIndex) {
+        for (unsigned int index = 0; index < columnSizes[columnIndex] + 2; ++index) {
+            fputs("=", file);
+        }
+        if (columnIndex < columns - 1) {
+            fputs("+", file);
+        }
+    }
+    fputs("+\n", file);
+
+    for (unsigned int rowIndex = 0; rowIndex < rows; ++rowIndex) {
+        fputs("|", file);
+
+        for (unsigned int columnIndex = 0; columnIndex < columns; ++columnIndex) {
+            char* value = table[rowIndex][columnIndex] ? table[rowIndex][columnIndex] : "";
+            unsigned int width = columnSizes[columnIndex];
+
+            fputs(" ", file);
+
+            if (rowIndex == 0) {
+                fprintf(file, "%-*s", width, value);
+            } else {
+                if (isNumber(value)) {
+                    fprintf(file, "%*s", width, value);
+                } else {
+                    fprintf(file, "%-*s", width, value);
+                }
+            }
+
+            fputs(" ", file);
+
+            if (columnIndex < columns - 1) {
+                fputs("│", file);
+            }
+        }
+        fputs("|\n", file);
+
+        if (rowIndex < rows - 1) {
+            if (rowIndex == 0) {
+                fputs("+", file);
+                for (unsigned int columnIndex = 0; columnIndex < columns; ++columnIndex) {
+                    for (unsigned int index = 0; index < columnSizes[columnIndex] + 2; ++index) {
+                        fputs("=", file);
+                    }
+                    if (columnIndex < columns - 1) {
+                        fputs("+", file);
+                    }
+                }
+                fputs("+\n", file);
+            } else {
+                fputs("+", file);
+                for (unsigned int columnIndex = 0; columnIndex < columns; ++columnIndex) {
+                    for (unsigned int index = 0; index < columnSizes[columnIndex] + 2; ++index) {
+                        fputs("-", file);
+                    }
+                    if (columnIndex < columns - 1) {
+                        fputs("+", file);
+                    }
+                }
+                fputs("+\n", file);
+            }
+        }
+    }
+
+    fputs("+", file);
+    for (unsigned int columnIndex = 0; columnIndex < columns; ++columnIndex) {
+        if (rows == 1) {
+            for (unsigned int index = 0; index < columnSizes[columnIndex] + 2; ++index) {
+                fputs("=", file);
+            }
+        } else {
+            for (unsigned int index = 0; index < columnSizes[columnIndex] + 2; ++index) {
+                fputs("-", file);
+            }
+        }
+        if (columnIndex < columns - 1) {
+            fputs("+", file);
+        }
+    }
+    fputs("+\n", file);
 }
 
 /*
@@ -49,335 +326,73 @@ int countCommas(const char* string)
 */
 int processCSV(const char* pathToCSV, const char* pathToTextFile)
 {
-    // Открываем CSV файл
-    FILE* csvFile = fopen(pathToCSV, "r");
-    if (csvFile == NULL) {
-        return 1;
-    }
-
-    // Читаем файл целиком
-    fseek(csvFile, 0, SEEK_END);
-    long fileSize = ftell(csvFile);
-    if (fileSize < 0 || fileSize > 100 * 1024 * 1024) {
-        fclose(csvFile);
-        return 3;
-    }
-    fseek(csvFile, 0, SEEK_SET);
-
-    char* buffer = malloc(fileSize + 1);
-    if (buffer == NULL) {
-        fclose(csvFile);
-        return 2;
-    }
-
-    size_t bytesRead = fread(buffer, 1, fileSize, csvFile);
-    if (bytesRead != fileSize) {
-        free(buffer);
-        fclose(csvFile);
-        return 3;
-    }
-    buffer[fileSize] = '\0';
-
-    fclose(csvFile);
-
-    // Создаем копию буффера для подсчета количества строк и столбцов
-    char* bufferForCount = malloc(fileSize + 1);
-    if (bufferForCount == NULL) {
-        free(buffer);
-        return 2;
-    }
-    memcpy(bufferForCount, buffer, fileSize);
-    bufferForCount[fileSize] = '\0';
-
-    // Подсчитываем количество строк и максимальное количество столбцов
+    char* buffer = NULL;
+    char*** table = NULL;
+    unsigned int* columnsSizes = NULL;
     unsigned int rowsNumber = 0;
     unsigned int maxColumns = 0;
 
-    char* context = NULL;
-    char* line = strtok_r(bufferForCount, "\n", &context);
-
-    while (line != NULL) {
-        ++rowsNumber;
-
-        // Подсчитываем количество столбцов в этой строке (запятые + 1)
-        int commas = countCommas(line);
-        int columnsInLine = commas + 1;
-
-        if (columnsInLine > maxColumns) {
-            maxColumns = columnsInLine;
-        }
-
-        line = strtok_r(NULL, "\n", &context);
+    size_t fileSize;
+    buffer = readFileContents(pathToCSV, &fileSize);
+    if (buffer == NULL) {
+        cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
+        return 1;
     }
 
-    // Проверяем, что файл не пустой
+    countDimensions(buffer, &rowsNumber, &maxColumns);
+
     if (rowsNumber == 0 || maxColumns == 0) {
-        free(bufferForCount);
-        free(buffer);
         FILE* textFile = fopen(pathToTextFile, "w");
         if (textFile == NULL) {
+            cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
             return 1;
-        } else {
-            fclose(textFile);
-            return 0;
         }
+        fclose(textFile);
+        cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
+        return 0;
     }
 
-    // Создаем таблицу
-    char*** table = malloc(sizeof(char**) * rowsNumber);
+    table = allocateTable(rowsNumber, maxColumns);
     if (table == NULL) {
-        free(bufferForCount);
-        free(buffer);
+        cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
         return 2;
     }
 
-    for (int rowIndex = 0; rowIndex < rowsNumber; ++rowIndex) {
-        table[rowIndex] = calloc(maxColumns, sizeof(char*));
-        if (table[rowIndex] == NULL) {
-            // Очищаем память в случае ошибки
-            for (int index = 0; index < rowIndex; ++index) {
-                free(table[index]);
-            }
-            free(table);
-            free(bufferForCount);
-            free(buffer);
-            return 2;
-        }
-    }
-
-    // Создаем массив с размерами столбцов
-    unsigned int* columnsSizes = calloc(maxColumns, sizeof(unsigned int));
+    columnsSizes = calloc(maxColumns, sizeof(unsigned int));
     if (columnsSizes == NULL) {
-        for (int index = 0; index < rowsNumber; ++index) {
-            free(table[index]);
-        }
-        free(table);
-        free(bufferForCount);
-        free(buffer);
+        cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
         return 2;
     }
 
-    // Заполняем таблицу значениями, используя оригинальный буффер
-    context = NULL;
-    line = strtok_r(buffer, "\n", &context);
+    char* bufferCopy = malloc(fileSize + 1);
+    if (bufferCopy == NULL) {
+        cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
+        return 2;
+    }
+    memcpy(bufferCopy, buffer, fileSize);
+    bufferCopy[fileSize] = '\0';
+
+    char* context = NULL;
+    char* line = strtok_r(bufferCopy, "\n", &context);
     unsigned int rowIndex = 0;
 
     while (line != NULL && rowIndex < rowsNumber) {
-        size_t lineLength = strlen(line);
-        // Создаем копию строки для обработки
-        char* lineCopy = malloc(lineLength + 1);
-        if (lineCopy == NULL) {
-            // Очищаем уже выделенную память
-            for (int index1 = 0; index1 < rowIndex; ++index1) {
-                for (int index2 = 0; index2 < maxColumns; ++index2) {
-                    free(table[index1][index2]);
-                }
-                free(table[index1]);
-            }
-            free(table);
-            free(columnsSizes);
-            free(bufferForCount);
-            free(buffer);
-            return 2;
-        }
-        memcpy(lineCopy, line, lineLength);
-        lineCopy[lineLength] = '\0';
-
-        unsigned int columnIndex = 0;
-
-        // Обрабатываем строку вручную, чтобы не пропускать пустые значения
-        char* start = lineCopy;
-
-        for (char* current = lineCopy; *current != '\0'; ++current) {
-            if (*current == ',') {
-                // Встретили запятую - извлекаем значение от start до current
-                *current = '\0';
-
-                // Удаляем пробелы в начале и конце
-                char* value = start;
-                while (isspace(*value)) {
-                    ++value;
-                }
-
-                char* end = value + strlen(value) - 1;
-                while (end > value && isspace(*end)) {
-                    --end;
-                }
-                *(end + 1) = '\0';
-
-                // Сохраняем значение (даже пустое)
-                table[rowIndex][columnIndex] = strdup(value);
-
-                size_t length = strlen(value);
-                if (length > columnsSizes[columnIndex]) {
-                    columnsSizes[columnIndex] = length;
-                }
-
-                ++columnIndex;
-                // Следующее значение начинается после запятой
-                start = current + 1;
-            }
-        }
-
-        // Обрабатываем последнее значение (после последней запятой или
-        // единственное)
-        if (columnIndex < maxColumns) {
-            // Удаляем пробелы в начале и конце
-            char* value = start;
-            while (isspace(*value)) {
-                ++value;
-            }
-
-            char* end = value + strlen(value) - 1;
-            while (end > value && isspace(*end)) {
-                --end;
-            }
-            *(end + 1) = '\0';
-
-            table[rowIndex][columnIndex] = strdup(value);
-
-            size_t length = strlen(value);
-            if (length > columnsSizes[columnIndex]) {
-                columnsSizes[columnIndex] = length;
-            }
-
-            ++columnIndex;
-        }
-
-        // Заполняем оставшиеся столбцы пустыми строками
-        while (columnIndex < maxColumns) {
-            table[rowIndex][columnIndex] = strdup("");
-            ++columnIndex;
-        }
-
-        free(lineCopy);
+        parseCSVLine(line, table[rowIndex], maxColumns, columnsSizes);
         line = strtok_r(NULL, "\n", &context);
         ++rowIndex;
     }
 
-    // Создаем файл для записи таблицы
+    free(bufferCopy);
+
     FILE* textFile = fopen(pathToTextFile, "w");
     if (textFile == NULL) {
-        // Очищаем память в случае ошибки
-        for (int rowIndex = 0; rowIndex < rowsNumber; ++rowIndex) {
-            for (int columnIndex = 0; columnIndex < maxColumns; ++columnIndex) {
-                free(table[rowIndex][columnIndex]);
-            }
-            free(table[rowIndex]);
-        }
-        free(table);
-        free(columnsSizes);
-        free(bufferForCount);
-        free(buffer);
+        cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
         return 1;
     }
 
-    // Отрисовываем верхнюю границу
-    fputs("+", textFile);
-    for (int columnIndex = 0; columnIndex < maxColumns; ++columnIndex) {
-        for (int index = 0; index < columnsSizes[columnIndex] + 2; ++index) {
-            fputs("=", textFile);
-        }
-        if (columnIndex < maxColumns - 1) {
-            fputs("+", textFile);
-        }
-    }
-    fputs("+\n", textFile);
-
-    // Отрисовываем строки данных
-    for (int rowIndex = 0; rowIndex < rowsNumber; ++rowIndex) {
-        fputs("|", textFile);
-
-        for (int columnIndex = 0; columnIndex < maxColumns; ++columnIndex) {
-            char* value = table[rowIndex][columnIndex] ? table[rowIndex][columnIndex] : "";
-            unsigned int width = columnsSizes[columnIndex];
-
-            fputs(" ", textFile);
-
-            // Определяем выравнивание
-            if (rowIndex == 0) {
-                // Поля заголовка выровнены по левому краю вне зависимости от типа
-                // данных
-                fprintf(textFile, "%-*s", width, value);
-            } else {
-                // Данные - выравнивание по типу
-                if (isNumber(value)) {
-                    // Число - по правому краю
-                    fprintf(textFile, "%*s", width, value);
-                } else {
-                    // Текст - по левому краю
-                    fprintf(textFile, "%-*s", width, value);
-                }
-            }
-
-            fputs(" ", textFile);
-
-            if (columnIndex < maxColumns - 1) {
-                // Одинарная вертикальная черта для данных
-                fputs("│", textFile);
-            }
-        }
-        fputs("|\n", textFile);
-
-        // Разделитель (не после последней строки)
-        if (rowIndex < rowsNumber - 1) {
-            if (rowIndex == 0) {
-                // После заголовка - двойная линия
-                fputs("+", textFile);
-                for (int columnIndex = 0; columnIndex < maxColumns; ++columnIndex) {
-                    for (int index = 0; index < columnsSizes[columnIndex] + 2; ++index) {
-                        fputs("=", textFile);
-                    }
-                    if (columnIndex < maxColumns - 1) {
-                        fputs("+", textFile);
-                    }
-                }
-                fputs("+\n", textFile);
-            } else {
-                // Между строками данных - одинарная линия
-                fputs("+", textFile);
-                for (int columnIndex = 0; columnIndex < maxColumns; ++columnIndex) {
-                    for (int index = 0; index < columnsSizes[columnIndex] + 2; ++index) {
-                        fputs("-", textFile);
-                    }
-                    if (columnIndex < maxColumns - 1) {
-                        fputs("+", textFile);
-                    }
-                }
-                fputs("+\n", textFile);
-            }
-        }
-    }
-
-    // Нижняя граница
-    fputs("+", textFile);
-    for (int columnIndex = 0; columnIndex < maxColumns; columnIndex++) {
-        if (rowsNumber == 1) {
-            for (int index = 0; index < columnsSizes[columnIndex] + 2; ++index) {
-                fputs("=", textFile);
-            }
-        } else {
-            for (int index = 0; index < columnsSizes[columnIndex] + 2; ++index) {
-                fputs("-", textFile);
-            }
-        }
-        if (columnIndex < maxColumns - 1) {
-            fputs("+", textFile);
-        }
-    }
-    fputs("+\n", textFile);
-
-    // Освобождение памяти
-    for (int rowIndex = 0; rowIndex < rowsNumber; ++rowIndex) {
-        for (int columnIndex = 0; columnIndex < maxColumns; ++columnIndex) {
-            free(table[rowIndex][columnIndex]);
-        }
-        free(table[rowIndex]);
-    }
-    free(table);
-    free(columnsSizes);
-    free(bufferForCount);
-    free(buffer);
+    drawTable(textFile, table, rowsNumber, maxColumns, columnsSizes);
     fclose(textFile);
+
+    cleanup(buffer, table, columnsSizes, rowsNumber, maxColumns);
     return 0;
 }
