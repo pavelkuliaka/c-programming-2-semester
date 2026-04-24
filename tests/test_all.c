@@ -1,76 +1,10 @@
-#include "../src/csv_processor.h"
+#include "csv_processor.h"
+#include "internal.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-int compareFiles(const char* pathToFile1, const char* pathToFile2)
-{
-    FILE* file1 = fopen(pathToFile1, "r");
-    FILE* file2 = fopen(pathToFile2, "r");
-
-    if (!file1 || !file2) {
-        puts("File opening error");
-        if (file1 != NULL) {
-            fclose(file1);
-        }
-        if (file2 != NULL) {
-            fclose(file2);
-        }
-        return 0;
-    }
-
-    int result = 1;
-    int char1, char2;
-
-    while (1) {
-        char1 = fgetc(file1);
-        char2 = fgetc(file2);
-
-        // Оба файла закончились одновременно
-        if (char1 == EOF && char2 == EOF) {
-            // Файлы идентичны
-            break;
-        }
-        // Первый файл закончился
-        if (char1 == EOF && char2 != EOF) {
-            // Проверяем, не идут ли во втором только \n
-            while (char2 == '\n') {
-                char2 = fgetc(file2);
-            }
-            if (char2 == EOF) {
-                // Только \n в конце - считаем одинаковыми
-                break;
-            } else {
-                result = 0;
-                break;
-            }
-        }
-        // Второй файл закончился
-        if (char1 != EOF && char2 == EOF) {
-            // Проверяем, не идут ли в первом только \n
-            while (char1 == '\n') {
-                char1 = fgetc(file1);
-            }
-            if (char1 == EOF) {
-                // Только \n в конце - считаем одинаковыми
-                break;
-            } else {
-                result = 0;
-                break;
-            }
-        }
-        // Символы разные
-        if (char1 != char2) {
-            result = 0;
-            break;
-        }
-        // Символы одинаковые - продолжаем цикл
-    }
-
-    fclose(file1);
-    fclose(file2);
-    return result;
-}
+int compareFiles(const char* pathToFile1, const char* pathToFile2);
 
 // Тесты для вспомогательных функций
 void testIsNumber(void)
@@ -175,4 +109,73 @@ int main(void)
     puts("All tests passed!");
 
     return 0;
+}
+
+int compareFiles(const char* pathToFile1, const char* pathToFile2)
+{
+    FILE* file1 = fopen(pathToFile1, "r");
+    FILE* file2 = fopen(pathToFile2, "r");
+
+    if (!file1 || !file2) {
+        puts("File opening error");
+        if (file1 != NULL) {
+            fclose(file1);
+        }
+        if (file2 != NULL) {
+            fclose(file2);
+        }
+        return 0;
+    }
+
+    int result = 1;
+    int char1, char2;
+
+    while (1) {
+        char1 = fgetc(file1);
+        char2 = fgetc(file2);
+
+        // Оба файла закончились одновременно
+        if (char1 == EOF && char2 == EOF) {
+            // Файлы идентичны
+            break;
+        }
+        // Первый файл закончился
+        if (char1 == EOF && char2 != EOF) {
+            // Проверяем, не идут ли во втором только \n
+            while (char2 == '\n') {
+                char2 = fgetc(file2);
+            }
+            if (char2 == EOF) {
+                // Только \n в конце - считаем одинаковыми
+                break;
+            } else {
+                result = 0;
+                break;
+            }
+        }
+        // Второй файл закончился
+        if (char1 != EOF && char2 == EOF) {
+            // Проверяем, не идут ли в первом только \n
+            while (char1 == '\n') {
+                char1 = fgetc(file1);
+            }
+            if (char1 == EOF) {
+                // Только \n в конце - считаем одинаковыми
+                break;
+            } else {
+                result = 0;
+                break;
+            }
+        }
+        // Символы разные
+        if (char1 != char2) {
+            result = 0;
+            break;
+        }
+        // Символы одинаковые - продолжаем цикл
+    }
+
+    fclose(file1);
+    fclose(file2);
+    return result;
 }

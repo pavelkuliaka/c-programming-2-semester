@@ -1,4 +1,5 @@
 #include "csv_processor.h"
+#include "internal.h"
 
 #include <ctype.h>
 #include <stdio.h>
